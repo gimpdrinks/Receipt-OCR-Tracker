@@ -1,0 +1,5 @@
+{
+  "name": "Receipt OCR Analyzer",
+  "description": "An expert financial assistant with advanced OCR capabilities. Analyze an image of a receipt, invoice, or any financial document and extract key information like transaction name, amount, date, and category.",
+  "requestFramePermissions": []
+}
