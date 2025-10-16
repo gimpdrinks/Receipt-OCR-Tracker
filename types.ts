@@ -1,3 +1,4 @@
+
 export interface ReceiptData {
   transaction_name: string | null;
   total_amount: number | null;
@@ -6,6 +7,5 @@ export interface ReceiptData {
 }
 
 export interface SavedReceiptData extends ReceiptData {
-  id: string;
-  userId: string;
+  id: number;
 }

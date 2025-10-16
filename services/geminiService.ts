@@ -1,72 +1,107 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { ReceiptData } from "../types";
+import { ReceiptData } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+// FIX: Initialize GoogleGenAI with API key from environment variables.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    transaction_name: {
-      type: Type.STRING,
-      description: "The primary name of the merchant or a brief description of the transaction (e.g., 'Starbucks,' 'Monthly Subscription'). Set to null if not found.",
-    },
-    total_amount: {
-      type: Type.NUMBER,
-      description: "The final amount of the transaction. Look for 'Total' or 'Amount Due'. Set to null if not found.",
-    },
-    transaction_date: {
-      type: Type.STRING,
-      description: "The date the transaction occurred in YYYY-MM-DD format. Prioritize the primary transaction date. Set to null if not found.",
-    },
-    category: {
-      type: Type.STRING,
-      description: "Assign a category from the following list: Food & Drink, Groceries, Transportation, Utilities, Rent/Mortgage, Shopping, Entertainment, Health & Wellness, Travel, Other. Set to null if unclear.",
-    },
-  },
-  required: ["transaction_name", "total_amount", "transaction_date", "category"],
+const fileToGenerativePart = async (file: File) => {
+  const base64EncodedDataPromise = new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+    reader.readAsDataURL(file);
+  });
+  return {
+    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
+  };
 };
 
-export const analyzeReceiptImage = async (mimeType: string, base64Data: string): Promise<ReceiptData> => {
-  const prompt = `
-    Analyze the provided receipt image. Perform OCR and extract the following information:
-    - Transaction Name/Description: The merchant name or transaction description.
-    - Total Amount: The final amount paid.
-    - Transaction Date: The date of the transaction.
-    - Category: Classify the transaction based on the merchant.
-    
-    Follow these rules strictly:
-    - If you cannot confidently determine a piece of information, set its value to null.
-    - If multiple dates are present, prioritize the primary transaction date.
-    - If the total amount is unclear, look for keywords like "Total," "Amount Due," or the largest numerical value that logically represents the total.
-    - Return the data in the specified JSON format.
-  `;
+const categories = [
+    "Food & Drink", "Groceries", "Transportation", "Shopping", "Utilities",
+    "Entertainment", "Health & Wellness", "Travel", "Other"
+];
 
-  const imagePart = {
-    inlineData: {
-      mimeType,
-      data: base64Data,
-    },
-  };
+export const analyzeReceipt = async (imageFile: File): Promise<ReceiptData> => {
+  // FIX: Use a model that supports multimodal input.
+  const model = 'gemini-2.5-flash';
+  
+  const imagePart = await fileToGenerativePart(imageFile);
 
-  const textPart = {
-    text: prompt,
-  };
+  const prompt = `Analyze the receipt image and extract the following information. The transaction date should be in YYYY-MM-DD format. For the category, choose the most appropriate one from this list: ${categories.join(', ')}. If any information is not found, return null for that field.`;
 
+  // FIX: Use generateContent with responseSchema for structured JSON output.
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: { parts: [textPart, imagePart] },
+    model: model,
+    contents: {
+      parts: [
+        { text: prompt },
+        imagePart,
+      ],
+    },
     config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-    }
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          transaction_name: { type: Type.STRING, description: "The name of the merchant or transaction." },
+          total_amount: { type: Type.NUMBER, description: "The final total amount of the transaction." },
+          transaction_date: { type: Type.STRING, description: "The date of the transaction in YYYY-MM-DD format. If the user says 'today', use the current date." },
+          category: { type: Type.STRING, description: `The category of the purchase. Must be one of: ${categories.join(', ')}.` },
+        },
+      },
+    },
   });
 
+  // FIX: Correctly parse the JSON response from the 'text' property.
   const jsonText = response.text.trim();
-  try {
-    return JSON.parse(jsonText) as ReceiptData;
-  } catch (e) {
-    console.error("Failed to parse JSON response:", jsonText);
-    throw new Error("Received an invalid format from the API.");
-  }
+  const data = JSON.parse(jsonText) as ReceiptData;
+
+  // Validate and clean up data
+  const validatedData: ReceiptData = {
+      transaction_name: data.transaction_name || null,
+      total_amount: typeof data.total_amount === 'number' ? data.total_amount : null,
+      transaction_date: data.transaction_date || null,
+      category: data.category && categories.includes(data.category) ? data.category : 'Other',
+  };
+  
+  return validatedData;
+};
+
+export const analyzeTransactionFromVoice = async (audioFile: File): Promise<ReceiptData> => {
+    const model = 'gemini-2.5-flash';
+
+    const audioPart = await fileToGenerativePart(audioFile);
+    
+    const today = new Date().toISOString().slice(0, 10);
+
+    const prompt = `Analyze the following audio and extract the transaction details. Today's date is ${today}. For the category, choose the most appropriate one from this list: ${categories.join(', ')}. If any information is not found, return null for that field.`;
+
+    const response = await ai.models.generateContent({
+        model: model,
+        contents: { parts: [{ text: prompt }, audioPart] },
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    transaction_name: { type: Type.STRING },
+                    total_amount: { type: Type.NUMBER },
+                    transaction_date: { type: Type.STRING, description: `The date in YYYY-MM-DD format. If the user says 'today', use ${today}.` },
+                    category: { type: Type.STRING, description: `Must be one of: ${categories.join(', ')}.` },
+                },
+            },
+        },
+    });
+
+    const jsonText = response.text.trim();
+    const data = JSON.parse(jsonText) as ReceiptData;
+    
+    // Validate and clean up data
+    const validatedData: ReceiptData = {
+        transaction_name: data.transaction_name || null,
+        total_amount: typeof data.total_amount === 'number' ? data.total_amount : null,
+        transaction_date: data.transaction_date || today,
+        category: data.category && categories.includes(data.category) ? data.category : 'Other',
+    };
+  
+    return validatedData;
 };

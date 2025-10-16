@@ -2,9 +2,10 @@ import React, { useState, useCallback, useRef } from 'react';
 
 interface ImageUploaderProps {
   onImageSelect: (file: File) => void;
+  className?: string;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelect }) => {
+const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelect, className }) => {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,7 +56,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelect }) => {
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
-      className={`flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-xl cursor-pointer transition-colors duration-300 ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}
+      className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-colors duration-300 ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'} ${className}`}
     >
       <input
         type="file"
